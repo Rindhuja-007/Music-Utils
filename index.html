@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en" class="h-full bg-gray-900 text-gray-100">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Audio Converter — Dark UI</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* small tweak for custom scrollbar in dark theme */
+    ::-webkit-scrollbar { height: 8px; width: 10px; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 8px; }
+  </style>
+</head>
+<body class="h-full antialiased">
+  <div class="min-h-screen flex items-center justify-center p-6">
+    <div class="w-full max-w-7xl bg-gradient-to-br from-gray-800 via-gray-900 to-black rounded-2xl shadow-2xl p-6 min-h-[800px]">
+      <header class="flex items-center justify-between mb-6">
+        <div>
+          <h1 class="text-2xl font-semibold">Audio Converter</h1>
+          <p class="text-sm text-gray-400">Drag & drop audio files, choose format and convert. Dark, responsive UI.</p>
+        </div>
+        <!-- <div class="text-sm text-gray-400">Powered by <span class="font-medium">ffmpeg</span> (server)</div> -->
+      </header>
+
+      <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <!-- Left: Controls -->
+        <section class="lg:col-span-1">
+          <div class="bg-gray-800 rounded-xl p-4 mb-4">
+            <label class="block text-sm font-medium text-gray-300 mb-2">Target format</label>
+            <div class="flex gap-5">
+              <button data-format="mp3" class="format-btn flex-1 py-2 rounded-lg border border-gray-700 hover:bg-gray-700">MP3</button>
+              <button data-format="wav" class="format-btn flex-1 py-2 rounded-lg border border-gray-700 hover:bg-gray-700">WAV</button>
+              <button data-format="m4a" class="format-btn flex-1 py-2 rounded-lg border border-gray-700 hover:bg-gray-700">M4A</button>
+            </div>
+            <p id="selectedFormat" class="mt-2 text-xs text-gray-400">Selected: <span class="font-medium">mp3</span></p>
+          </div>
+
+          <div class="bg-gray-800 rounded-xl p-4 mb-4">
+            <label class="block text-sm font-medium text-gray-300 mb-2">Upload mode</label>
+            <div class="flex items-center gap-3 text-sm text-gray-300">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="mode" value="upload" checked class="accent-gray-500" />
+                Upload files (recommended)
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="mode" value="paths" class="accent-gray-500" />
+                Server-side paths
+              </label>
+            </div>
+
+            <div id="pathsBox" class="mt-4 hidden">
+              <label class="block text-xs text-gray-400">Input folder path (server)</label>
+              <input id="inputFolder" type="text" placeholder="/home/user/audio_in" class="w-full mt-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded text-sm" />
+              <label class="block text-xs text-gray-400 mt-3">Output folder path (server)</label>
+              <input id="outputFolder" type="text" placeholder="/home/user/audio_out" class="w-full mt-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded text-sm" />
+              <p class="text-xs text-gray-500 mt-2">Use this mode only if your server can access these folders directly.</p>
+            </div>
+
+          </div>
+
+          <div class="bg-gray-800 rounded-xl p-4 flex gap-2">
+            <button id="startBtn" class="flex-1 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 font-medium">Start Conversion</button>
+            <button id="clearBtn" class="w-12 rounded-lg border border-gray-700">Clear</button>
+          </div>
+
+          <div class="mt-4 text-xs text-gray-400">
+            <p><strong>Note:</strong> This frontend sends files to <code class="bg-gray-900 px-1 py-0.5 rounded">/api/convert</code>. Update the endpoint in the JS if needed.</p>
+          </div>
+        </section>
+
+        <!-- Middle: Dropzone -->
+        <section class="lg:col-span-2">
+          <div id="dropzone" class="h-48 rounded-xl border-2 border-dashed border-gray-700 bg-gradient-to-b from-transparent to-gray-900 flex items-center justify-center text-center p-4 cursor-pointer">
+            <div>
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mx-auto text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.172 7l-6.586 6.586a2 2 0 002.828 2.828L18 9.828M12 3v12" />
+              </svg>
+              <p class="mt-2 text-sm text-gray-300">Drag & drop audio files here, or click to select. Supported: mp3, wav, m4a, mp4</p>
+              <input id="fileInput" type="file" multiple accept="audio/*,video/mp4" class="hidden" />
+            </div>
+          </div>
+
+          <div id="fileList" class="mt-4 max-h-72 overflow-auto space-y-3">
+            <!-- dynamically populated -->
+          </div>
+        </section>
+      </main>
+
+      <footer class="mt-6 text-sm text-gray-500 text-center">Responsive • Dark theme • Tailwind CSS</footer>
+    </div>
+  </div>
+
+<script>
+  // Basic interactive behavior
+  const formatBtns = document.querySelectorAll('.format-btn')
+  const selectedFormatEl = document.querySelector('#selectedFormat span')
+  let selectedFormat = 'mp3'
+  const dropzone = document.getElementById('dropzone')
+  const fileInput = document.getElementById('fileInput')
+  const fileList = document.getElementById('fileList')
+  const startBtn = document.getElementById('startBtn')
+  const clearBtn = document.getElementById('clearBtn')
+  const pathsBox = document.getElementById('pathsBox')
+
+  let files = [] // File objects when in upload mode
+
+  // format buttons
+  formatBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      formatBtns.forEach(b => b.classList.remove('bg-indigo-600', 'text-white'))
+      btn.classList.add('bg-indigo-600', 'text-white')
+      selectedFormat = btn.dataset.format
+      selectedFormatEl.textContent = selectedFormat
+    })
+  })
+
+  // mode radio
+  document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', e => {
+    if (e.target.value === 'paths') pathsBox.classList.remove('hidden')
+    else pathsBox.classList.add('hidden')
+  }))
+
+  // Dropzone
+  dropzone.addEventListener('click', () => fileInput.click())
+  dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('border-indigo-500') })
+  dropzone.addEventListener('dragleave', () => { dropzone.classList.remove('border-indigo-500') })
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault(); dropzone.classList.remove('border-indigo-500')
+    handleFiles(e.dataTransfer.files)
+  })
+  fileInput.addEventListener('change', (e) => handleFiles(e.target.files))
+
+  function handleFiles(list){
+    const arr = Array.from(list)
+    // filter supported extensions
+    const supported = ['.mp3', '.wav', '.m4a', '.mp4']
+    arr.forEach(f => {
+      const lower = f.name.toLowerCase()
+      if (supported.some(ext => lower.endsWith(ext))){
+        files.push(f)
+      }
+    })
+    renderFileList()
+  }
+
+  function renderFileList(){
+    fileList.innerHTML = ''
+    if (files.length === 0){
+      fileList.innerHTML = '<div class="text-center text-gray-500 py-8">No files added yet.</div>'
+      return
+    }
+    files.forEach((f, idx) => {
+      const row = document.createElement('div')
+      row.className = 'flex items-center justify-between gap-3 bg-gray-800 rounded-xl p-3'
+      row.innerHTML = `
+        <div class="min-w-0">
+          <div class="text-sm font-medium truncate">${escapeHtml(f.name)}</div>
+          <div class="text-xs text-gray-400">${formatBytes(f.size)}</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="w-40 h-2 bg-gray-700 rounded overflow-hidden"><div class="progress-bar h-full" style="width:0%"></div></div>
+          <button data-idx="${idx}" class="remove-btn text-xs px-2 py-1 rounded bg-gray-700">Remove</button>
+        </div>
+      `
+      fileList.appendChild(row)
+    })
+
+    // attach remove handlers
+    document.querySelectorAll('.remove-btn').forEach(b => b.addEventListener('click', e => {
+      const i = Number(e.currentTarget.dataset.idx)
+      files.splice(i,1)
+      renderFileList()
+    }))
+  }
+
+  clearBtn.addEventListener('click', () => { files = []; renderFileList() })
+
+  startBtn.addEventListener('click', () => {
+    const mode = document.querySelector('input[name="mode"]:checked').value
+    if (mode === 'upload'){
+      if (files.length === 0) return alert('Add files first')
+      uploadFiles(files, selectedFormat)
+    } else {
+      // server-side paths mode
+      const inputFolder = (document.getElementById('inputFolder')).value.trim()
+      const outputFolder = (document.getElementById('outputFolder')).value.trim()
+      if (!inputFolder || !outputFolder) return alert('Provide both input and output folder paths')
+      sendPathsToServer(inputFolder, outputFolder, selectedFormat)
+    }
+  })
+
+  function uploadFiles(filesArr, format){
+    // For each file we create a separate upload so we can show individual progress
+    filesArr.forEach((file, idx) => {
+      const row = fileList.children[idx]
+      const progressBar = row.querySelector('.progress-bar')
+
+      const xhr = new XMLHttpRequest()
+      const form = new FormData()
+      form.append('files[]', file)
+      form.append('format', format)
+
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable){
+          const pct = Math.round((e.loaded / e.total) * 100)
+          progressBar.style.width = pct + '%'
+        }
+      })
+
+      xhr.addEventListener('load', () => {
+        try {
+          const res = JSON.parse(xhr.responseText)
+          // Expect server to return { name, status, message, download_url? }
+          const info = document.createElement('div')
+          info.className = 'text-xs mt-2'
+          if (res && res.results && res.results[0]){
+            const r = res.results[0]
+            info.innerHTML = `<span class=\"font-medium\">${escapeHtml(r.name)}</span>: ${escapeHtml(r.status)} - ${escapeHtml(r.message || '')}` + (r.download_url ? ` <a class=\"text-indigo-400\" href=\"${escapeHtml(r.download_url)}\" target=\"_blank\">download</a>` : '')
+          } else {
+            info.textContent = 'Finished (no detailed response)'
+          }
+          row.appendChild(info)
+        } catch (err) {
+          const info = document.createElement('div')
+          info.className = 'text-xs mt-2 text-red-400'
+          info.textContent = 'Server error or invalid JSON response.'
+          row.appendChild(info)
+        }
+      })
+
+      xhr.addEventListener('error', () => {
+        progressBar.style.background = 'linear-gradient(90deg,#ff7a7a,#ff4d4d)'
+      })
+
+      xhr.open('POST', '/api/convert')
+      xhr.send(form)
+    })
+  }
+
+  function sendPathsToServer(inputFolder, outputFolder, format){
+    // Sends JSON with paths to the server endpoint
+    startBtn.disabled = true
+    startBtn.textContent = 'Sending...'
+    fetch('/api/convert-paths', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input_folder: inputFolder, output_folder: outputFolder, format })
+    }).then(r => r.json()).then(data => {
+      alert('Server responded. Check console for details.')
+      console.log(data)
+    }).catch(e => {
+      alert('Error sending paths to server')
+      console.error(e)
+    }).finally(() => { startBtn.disabled = false; startBtn.textContent = 'Start Conversion' })
+  }
+
+  // small helpers
+  function formatBytes(bytes){
+    if (bytes === 0) return '0 B'
+    const k = 1024
+    const sizes = ['B','KB','MB','GB','TB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  }
+
+  function escapeHtml(s){ if (!s) return ''; return s.replace(/[&<>\"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c] }) }
+
+  // initial render
+  renderFileList()
+
+</script>
+</body>
+</html>
